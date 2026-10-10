@@ -372,6 +372,14 @@ reusable than the patches.
 - `CUDA (delta-net)` patches only fire on models with a gated delta-net block
   (Qwen3-Next, Qwen3.5). Elsewhere they never fire; the only cost is the
   per-graph pattern match.
+- Every number here was measured on **one** card. Multi-GPU is unexplored, and
+  one patch actively conflicts with it: 22 `decode-sched-slots` gives each graph
+  slot its own compute buffer, which overflows the meta backend's
+  two-container rotation and aborts under `-sm tensor`. Since the rebase that
+  patch now detects a meta device and disables itself there (see
+  [docs/patches.md](docs/patches.md)), so the set loads and runs on tensor
+  split — but it runs **without** the slots, and no multi-GPU patch has been
+  measured for value or for output identity.
 - `nix flake check` proves that the patches apply, that nixpkgs still carries the
   tag they were generated against, and that the patched tree compiles without
   CUDA. It does not compile the CUDA sources, run llama.cpp's tests, or measure

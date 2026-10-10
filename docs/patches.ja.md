@@ -915,6 +915,19 @@ upstream の「前回グラフの保持を 2 つの arena にする」変更 (`g
 そのリスクに見合わない。VRAM に余裕があれば `LLAMA_DEC_SLOTS=8`、`=0` で upstream の挙動に
 戻る。
 
+**`-sm tensor` ではスロットが自動的にオフになる。** meta バックエンドは meta バッファごとに
+compute コンテナを 2 個ローテーションする (`stc_compute[2]`、この箇所のコメントが
+「llama.cpp で正しく動く」と言っているのは、再利用されるグラフ 1 個に対しては 2 で十分、と
+いう意味である)。`bcj.nodes[]` はその再構築のときに確保される。スロットは各自が自分のグラフと
+compute バッファを持つので、メイングラフ + スロット 1 個でもローテーションを超え、あとの
+グラフは自分の下でリセットされたコンテナを読むことになる。結果は decode の最初のステップで
+`ggml_backend_meta_split_graph` の `GGML_ASSERT(bcj.nodes[i])` が abort する — prefill は
+スロットが `n_tokens <= dec_max_tok` のときだけ発火するので生き残る。2x Tesla P100 の
+dense 27B Q4_0 (`-sm tensor -fa on`) で測定し、このパッチだけを除外すれば abort が止まることを
+確認した (必要十分)。そこでガードは split mode ではなく meta device そのもの
+(`llama_device::is_meta`) を検査し、`LLAMA_DEC_SLOTS` を 0 にして警告を出す。単一デバイスと
+layer/row split は影響を受けない — 上の表の数値はすべてその設定で測ったものである。
+
 `LLAMA_DEC_MAX_TOK` の既定値 4 はマジックナンバーではない。
 `ggml_cuda_check_fusion_memory_ranges` は融合の可否を**実アドレス**で判定するので、バッファ
 配置が変われば発火する融合が変わり、出力も変わる。topk-moe には

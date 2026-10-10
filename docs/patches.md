@@ -1013,6 +1013,22 @@ resolution established in [benchmarking.md](benchmarking.md), but small — is n
 worth that risk. Raise it with `LLAMA_DEC_SLOTS=8` where there is headroom; `=0`
 restores upstream behaviour.
 
+**Slots switch themselves off under `-sm tensor`.** The meta backend rotates two
+compute containers per meta buffer (`stc_compute[2]`, whose comment says two is
+what "works correctly for llama.cpp" — that is, for one reused graph), and
+`bcj.nodes[]` is sized from that rebuild. Each slot owns its own graph and
+compute buffer, so the main graph plus even one slot exceeds the rotation, and a
+later graph finds a container that was reset under it:
+`ggml_backend_meta_split_graph` aborts on `GGML_ASSERT(bcj.nodes[i])` on the first
+decode step — with prefill surviving, because slots only take
+`n_tokens <= dec_max_tok`. Measured on 2x Tesla P100, dense 27B Q4_0,
+`-sm tensor -fa on`, where removing this patch alone was both necessary and
+sufficient to stop the abort. The guard therefore tests for a meta device
+(`llama_device::is_meta`) rather than for the split mode that creates one, zeroes
+`LLAMA_DEC_SLOTS` and logs a warning when it does. Single-device and layer/row
+split are untouched, which is the whole configuration set everything in this
+table was measured on.
+
 `LLAMA_DEC_MAX_TOK` defaults to 4, and that number is load-bearing:
 `ggml_cuda_check_fusion_memory_ranges` decides fusion from actual tensor
 addresses, so a different buffer layout changes which fusions fire and

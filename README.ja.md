@@ -335,6 +335,12 @@ $ for p in ../llama-cpp-p100-patches/patches/*.patch; do
 - `CUDA (delta-net)` のパッチは、gated delta-net を持つモデル (Qwen3-Next / Qwen3.5)
   でしか発火しない。それ以外のモデルでは発火しないだけで、コストはグラフごとの
   パターン照合だけである
+- ここにある数値はすべて**単一カード**で測ったものである。マルチ GPU は未調査で、1 本は
+  明確に衝突する: 22 `decode-sched-slots` はスロット各自が compute バッファを持つため、
+  meta バックエンドの 2 コンテナ・ローテーションを超えて `-sm tensor` で abort する。
+  今回の rebase でこのパッチは meta device を検出すると自身を無効化するようになった
+  (詳細は [docs/patches.ja.md](docs/patches.ja.md)) ので、パッチ集は tensor split でも
+  載って走る — ただし**スロットなし**で走る。マルチ GPU での効果も出力一致も未実測である
 - `nix flake check` が保証するのは、パッチが当たること、nixpkgs が生成時のタグを保って
   いること、そして CUDA 抜きでパッチ適用後のツリーがコンパイルできることの 3 点である。
   CUDA のソースはコンパイルせず、llama.cpp のテストも実測も行わない。これらにはカードが要る
