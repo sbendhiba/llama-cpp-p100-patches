@@ -1,5 +1,5 @@
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index fcd4dfb13..ef1a0325f 100644
+index 07b4c6148..5ff2de1d1 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
 @@ -642,6 +642,59 @@ void llama_context::sched_reserve() {
@@ -77,7 +77,7 @@ index fcd4dfb13..ef1a0325f 100644
                  gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get());
              }
              if (!gf) {
-@@ -769,7 +830,7 @@ void llama_context::synchronize() {
+@@ -773,7 +834,7 @@ void llama_context::synchronize() {
          return;
      }
  
@@ -86,7 +86,7 @@ index fcd4dfb13..ef1a0325f 100644
  
      // FIXME: if multiple single tokens are evaluated without a synchronization,
      // the stats will be added to the prompt evaluation stats
-@@ -875,6 +936,7 @@ bool llama_context::memory_update(bool optimize) {
+@@ -879,6 +940,7 @@ bool llama_context::memory_update(bool optimize) {
              }
          }
          gf_res_prev_active = nullptr;
@@ -94,7 +94,7 @@ index fcd4dfb13..ef1a0325f 100644
  
          if (!mctx->apply()) {
              LLAMA_LOG_ERROR("%s: failed to apply memory update\n", __func__);
-@@ -1395,30 +1457,104 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1404,30 +1466,104 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
          return nullptr;
      }
  
@@ -206,7 +206,7 @@ index fcd4dfb13..ef1a0325f 100644
  
          //const auto t_start_us = ggml_time_us();
  
-@@ -1432,13 +1568,69 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+@@ -1441,13 +1577,69 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
              return nullptr;
          }
  
@@ -281,7 +281,7 @@ index fcd4dfb13..ef1a0325f 100644
      }
  
      // set the input data for the input tensors
-@@ -1548,7 +1740,7 @@ int llama_context::encode(const llama_batch & batch_inp) {
+@@ -1558,7 +1750,7 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
  
      // extract logits
      if (logits.data && t_logits) {
@@ -290,7 +290,7 @@ index fcd4dfb13..ef1a0325f 100644
          GGML_ASSERT(backend_res != nullptr);
          GGML_ASSERT(logits.data != nullptr);
  
-@@ -1557,7 +1749,7 @@ int llama_context::encode(const llama_batch & batch_inp) {
+@@ -1567,7 +1759,7 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
  
      // extract embeddings
      if (embd.data && t_embd) {
@@ -299,7 +299,7 @@ index fcd4dfb13..ef1a0325f 100644
          GGML_ASSERT(backend_embd != nullptr);
  
          switch (cparams.pooling_type) {
-@@ -1612,7 +1804,7 @@ int llama_context::encode(const llama_batch & batch_inp) {
+@@ -1622,7 +1814,7 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
  
      // extract nextn embeddings (hidden state before the final output norm)
      if (embd_nextn.data && t_h_nextn && cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
@@ -308,7 +308,7 @@ index fcd4dfb13..ef1a0325f 100644
          GGML_ASSERT(backend_h != nullptr);
  
          const uint32_t n_embd = hparams.n_embd_out();
-@@ -1932,7 +2124,7 @@ int llama_context::decode(const llama_batch & batch_inp) {
+@@ -1938,7 +2130,7 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
  
          // extract logits
          if (logits.data && t_logits && n_outputs > 0 && needs_raw_logits(ubatch, sampling.samplers)) {
@@ -317,7 +317,7 @@ index fcd4dfb13..ef1a0325f 100644
              GGML_ASSERT(backend_res != nullptr);
              GGML_ASSERT(logits.data != nullptr);
  
-@@ -1947,7 +2139,7 @@ int llama_context::decode(const llama_batch & batch_inp) {
+@@ -1953,7 +2145,7 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
  
          // extract embeddings
          if (embd.data && t_embd && n_outputs > 0) {
@@ -326,7 +326,7 @@ index fcd4dfb13..ef1a0325f 100644
              GGML_ASSERT(backend_embd != nullptr);
  
              switch (cparams.pooling_type) {
-@@ -2015,7 +2207,7 @@ int llama_context::decode(const llama_batch & batch_inp) {
+@@ -2022,7 +2214,7 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
              const int64_t offset = masked ? n_outputs_prev  : n_tokens_prev;
  
              if (embd_nextn.data && t_h_nextn && n_rows > 0 && cparams.pooling_type == LLAMA_POOLING_TYPE_NONE) {
@@ -335,7 +335,7 @@ index fcd4dfb13..ef1a0325f 100644
                  GGML_ASSERT(backend_h != nullptr);
  
                  const uint32_t n_embd  = hparams.n_embd_out();
-@@ -2030,10 +2222,10 @@ int llama_context::decode(const llama_batch & batch_inp) {
+@@ -2045,10 +2237,10 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
              const auto stride = n_vocab;
  
              // async copy the sampling data from the backend to the host
@@ -350,16 +350,16 @@ index fcd4dfb13..ef1a0325f 100644
          }
  
          n_outputs_prev += n_outputs;
-@@ -2284,7 +2476,7 @@ void llama_context::extract_layer_inputs(const llm_graph_result * res, size_t to
+@@ -2301,7 +2493,7 @@ bool llama_context::extract_layer_inputs(const llm_graph_result * res, size_t to
          const size_t dst_offset = token_offset * row_floats;
          GGML_ASSERT(dst_offset + nfloats <= embd_layer_inp[il].size);
  
 -        ggml_backend_t backend = ggml_backend_sched_get_tensor_backend(sched.get(), t);
 +        ggml_backend_t backend = ggml_backend_sched_get_tensor_backend(sched_active(), t);
          GGML_ASSERT(backend != nullptr);
+         // Tensor-split backends require a zero source offset.
          ggml_backend_tensor_get_async(backend, t, embd_layer_inp[il].data + dst_offset, 0, nbytes);
-     }
-@@ -2503,6 +2695,7 @@ ggml_cgraph * llama_context::graph_reserve(
+@@ -2542,6 +2734,7 @@ ggml_cgraph * llama_context::graph_reserve(
          }
      }
      gf_res_prev_active = nullptr;
@@ -367,7 +367,7 @@ index fcd4dfb13..ef1a0325f 100644
  
      // store the n_outputs as it is, and restore it afterwards
      // TODO: not sure if needed, might simplify in the future by removing this
-@@ -2542,6 +2735,22 @@ ggml_cgraph * llama_context::graph_reserve(
+@@ -2581,6 +2774,22 @@ ggml_cgraph * llama_context::graph_reserve(
      return gf;
  }
  
@@ -390,7 +390,7 @@ index fcd4dfb13..ef1a0325f 100644
  llm_graph_params llama_context::graph_params(
                          llm_graph_result * res,
                        const llama_ubatch & ubatch,
-@@ -2553,7 +2762,7 @@ llm_graph_params llama_context::graph_params(
+@@ -2592,7 +2801,7 @@ llm_graph_params llama_context::graph_params(
          /*.cparams     =*/ cparams,
          /*.ubatch      =*/ ubatch,
          /*.gtype       =*/ gtype,
@@ -399,7 +399,7 @@ index fcd4dfb13..ef1a0325f 100644
          /*.backend_cpu =*/ backend_cpu,
          /*.cvec        =*/ cvec.get(),
          /*.loras       =*/ loras.get(),
-@@ -2585,7 +2794,7 @@ ggml_status llama_context::graph_compute(
+@@ -2625,7 +2834,7 @@ ggml_status llama_context::graph_compute(
          set_n_threads_fn.second(set_n_threads_fn.first, n_threads);
      }
  
@@ -408,7 +408,7 @@ index fcd4dfb13..ef1a0325f 100644
      if (status != GGML_STATUS_SUCCESS) {
          LLAMA_LOG_ERROR("%s: ggml_backend_sched_graph_compute_async failed with error %d\n", __func__, status);
      }
-@@ -2613,7 +2822,7 @@ llm_graph_cb llama_context::graph_get_cb() const {
+@@ -2653,7 +2862,7 @@ llm_graph_cb llama_context::graph_get_cb() const {
                  for (const auto & backend : backends) {
                      if (ggml_backend_get_device(backend.get()) == dev_layer) {
                          if (ggml_backend_supports_op(backend.get(), cur)) {
@@ -417,7 +417,7 @@ index fcd4dfb13..ef1a0325f 100644
                          }
                      }
                  }
-@@ -3443,6 +3652,21 @@ llama_memory_breakdown llama_context::memory_breakdown() const {
+@@ -3494,6 +3703,21 @@ llama_memory_breakdown llama_context::memory_breakdown() const {
              ret[buft].context += size;
          }
      }
@@ -439,7 +439,7 @@ index fcd4dfb13..ef1a0325f 100644
      if (model.hparams.no_alloc) {
          for (size_t i = 0; i < backends.size(); ++i) {
              ggml_backend_t             backend = backends[i].get();
-@@ -3541,6 +3765,12 @@ void llama_context::opt_epoch_iter(
+@@ -3599,6 +3823,12 @@ void llama_context::opt_epoch_iter(
          int64_t                          ndata_in_loop,
          int64_t                          t_loop_start) {
      GGML_ASSERT(opt_ctx);
@@ -453,10 +453,10 @@ index fcd4dfb13..ef1a0325f 100644
      const uint32_t n_batch  = std::min(this->n_batch(),  n_ctx);
      const uint32_t n_ubatch = std::min(this->n_ubatch(), n_batch);
 diff --git a/src/llama-context.h b/src/llama-context.h
-index 77ef92fc6..c3133acda 100644
+index 95b722628..487e6e557 100644
 --- a/src/llama-context.h
 +++ b/src/llama-context.h
-@@ -347,6 +347,37 @@ private:
+@@ -354,6 +354,37 @@ private:
  
      ggml_backend_sched_ptr sched;
  

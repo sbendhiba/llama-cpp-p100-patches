@@ -1,8 +1,8 @@
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 9ae164379..be789eac5 100644
+index e7de3bbf5..fa8634863 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -3453,26 +3453,23 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph *                cgraph,
+@@ -3527,26 +3527,23 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph *                cgraph,
      return false;
  }
  
@@ -40,7 +40,7 @@ index 9ae164379..be789eac5 100644
      for (int a = 0; a < n; ++a) {
          // dst_src_idx >= 0 means src[dst_src_idx] is the destination (CPY); otherwise the node
          // itself is the destination (L2_NORM)
-@@ -3485,7 +3482,7 @@ static bool ggml_cuda_fuse_nodes_disjoint(ggml_tensor ** nodes, int n, int dst_s
+@@ -3559,7 +3556,7 @@ static bool ggml_cuda_fuse_nodes_disjoint(ggml_tensor ** nodes, int n, int dst_s
                  continue;
              }
              const ggml_tensor * dst_b = dst_src_idx >= 0 ? nodes[b]->src[dst_src_idx] : nodes[b];
@@ -49,7 +49,7 @@ index 9ae164379..be789eac5 100644
                  return false;
              }
              for (int s = 0; s < GGML_MAX_SRC; ++s) {
-@@ -3496,7 +3493,7 @@ static bool ggml_cuda_fuse_nodes_disjoint(ggml_tensor ** nodes, int n, int dst_s
+@@ -3570,7 +3567,7 @@ static bool ggml_cuda_fuse_nodes_disjoint(ggml_tensor ** nodes, int n, int dst_s
                  if (dst_src_idx >= 0 && s == dst_src_idx) {
                      continue; // destination-vs-destination was handled above
                  }
@@ -58,7 +58,7 @@ index 9ae164379..be789eac5 100644
                      return false;
                  }
              }
-@@ -4000,6 +3997,56 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
+@@ -4094,6 +4091,56 @@ static int ggml_cuda_try_fuse(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph
          }
      }
  
@@ -116,14 +116,14 @@ index 9ae164379..be789eac5 100644
      if (cgraph->nodes[i]->op == GGML_OP_UNARY || cgraph->nodes[i]->op == GGML_OP_SOFT_MAX ||
              cgraph->nodes[i]->op == GGML_OP_ARGSORT) {
 diff --git a/ggml/src/ggml-cuda/norm.cu b/ggml/src/ggml-cuda/norm.cu
-index 57ccdceb2..c7b566a40 100644
+index 1834df633..0ac76f37b 100644
 --- a/ggml/src/ggml-cuda/norm.cu
 +++ b/ggml/src/ggml-cuda/norm.cu
 @@ -73,8 +73,16 @@ static __global__ void group_norm_f32(const float * x, float * dst, const int gr
      }
  }
  
--template <int block_size, bool do_multiply = false, bool do_add = false, bool do_pre_add = false>
+-template <int block_size, bool do_multiply = false, bool do_add = false, bool do_scale = false, bool do_pre_add = false>
 -static __global__ void rms_norm_f32(const float * x,
 +struct rms_norm_scale_fused_args {
 +    const float * x    [CUDA_RMS_SCALE_FUSE_MAX];
@@ -133,12 +133,12 @@ index 57ccdceb2..c7b566a40 100644
 +    int           nrows;
 +};
 +
-+template <int block_size, bool do_multiply, bool do_add, bool do_pre_add, bool do_scale_pairs>
++template <int block_size, bool do_multiply, bool do_add, bool do_scale, bool do_pre_add, bool do_scale_pairs>
 +static __device__ __forceinline__ void rms_norm_f32_impl(const float * x,
                                      float *       dst,
                                      const int     ncols,
                                      const int64_t stride_row,
-@@ -103,17 +111,32 @@ static __global__ void rms_norm_f32(const float * x,
+@@ -104,18 +112,33 @@ static __global__ void rms_norm_f32(const float * x,
                                      // is contained in the block and no cross-block synchronization is needed.
                                      const float * pre_a                = nullptr,
                                      const float * pre_b                = nullptr,
@@ -158,7 +158,8 @@ index 57ccdceb2..c7b566a40 100644
      const int tid       = threadIdx.x;
  
      static_assert(!do_add || do_multiply, "fusing add is not supported without multiplying");
-+    static_assert(!do_scale_pairs || (!do_multiply && !do_pre_add), "scale pairs are fused on their own");
+     static_assert(!do_scale || !do_multiply, "fusing scale is not supported with multiplying");
++    static_assert(!do_scale_pairs || (!do_multiply && !do_pre_add && !do_scale), "scale pairs are fused on their own");
 +
 +    float pair_scale = 0.0f;
 +    float pair_bias  = 0.0f;
@@ -174,21 +175,21 @@ index 57ccdceb2..c7b566a40 100644
  
      x   += sample*stride_sample + channel*stride_channel + row*stride_row;
      dst += ((sample*nchannels + channel)*nrows + row)*ncols;
-@@ -201,6 +224,9 @@ static __global__ void rms_norm_f32(const float * x,
-         } else if constexpr (do_multiply) {
-             const int mul_col = fastmodulo(col, mul_ncols_packed);
+@@ -205,6 +228,9 @@ static __global__ void rms_norm_f32(const float * x,
              dst[col]          = scale * xi * mul[mul_col];
+         } else if constexpr (do_scale) {
+             dst[col] = scale_out * (scale * xi);
 +        } else if constexpr (do_scale_pairs) {
 +            const float t = scale * xi;
 +            dst[col]      = pair_scale * t + pair_bias;
          } else {
              dst[col] = scale * xi;
          }
-@@ -221,6 +247,49 @@ static __global__ void rms_norm_f32(const float * x,
+@@ -225,6 +251,50 @@ static __global__ void rms_norm_f32(const float * x,
      }
  }
  
-+template <int block_size, bool do_multiply = false, bool do_add = false, bool do_pre_add = false>
++template <int block_size, bool do_multiply = false, bool do_add = false, bool do_scale = false, bool do_pre_add = false>
 +static __global__ void rms_norm_f32(const float * x,
 +                                    float *       dst,
 +                                    const int     ncols,
@@ -212,6 +213,7 @@ index 57ccdceb2..c7b566a40 100644
 +                                    const uint3   add_nrows_packed     = make_uint3(0, 0, 0),
 +                                    const uint3   add_nchannels_packed = make_uint3(0, 0, 0),
 +                                    const uint3   add_nsamples_packed  = make_uint3(0, 0, 0),
++                                    const float   scale_out            = 1.0f,
 +                                    // Fold the residual add into the prologue: compute x = pre_a + pre_b, store it to
 +                                    // pre_dst (the ADD's destination, which is where rms_norm reads x from) and feed it
 +                                    // straight into the sum of squares.  rms_norm maps one row to one block, so the row
@@ -219,22 +221,22 @@ index 57ccdceb2..c7b566a40 100644
 +                                    const float * pre_a                = nullptr,
 +                                    const float * pre_b                = nullptr,
 +                                    float *       pre_dst              = nullptr) {
-+    rms_norm_f32_impl<block_size, do_multiply, do_add, do_pre_add, false>(x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel, mul_stride_sample, mul_ncols_packed, mul_nrows_packed, mul_nchannels_packed, mul_nsamples_packed, add, add_stride_row, add_stride_channel, add_stride_sample, add_ncols_packed, add_nrows_packed, add_nchannels_packed, add_nsamples_packed, pre_a, pre_b, pre_dst, rms_norm_scale_fused_args{});
++    rms_norm_f32_impl<block_size, do_multiply, do_add, do_scale, do_pre_add, false>(x, dst, ncols, stride_row, stride_channel, stride_sample, eps, mul, mul_stride_row, mul_stride_channel, mul_stride_sample, mul_ncols_packed, mul_nrows_packed, mul_nchannels_packed, mul_nsamples_packed, add, add_stride_row, add_stride_channel, add_stride_sample, add_ncols_packed, add_nrows_packed, add_nchannels_packed, add_nsamples_packed, scale_out, pre_a, pre_b, pre_dst, rms_norm_scale_fused_args{});
 +}
 +
 +template <int block_size>
 +static __global__ void rms_norm_scale_pairs_f32(const rms_norm_scale_fused_args fused, const int ncols, const int64_t stride_row,
 +        const int64_t stride_channel, const int64_t stride_sample, const float eps) {
-+    rms_norm_f32_impl<block_size, false, false, false, true>(nullptr, nullptr, ncols, stride_row, stride_channel, stride_sample, eps,
++    rms_norm_f32_impl<block_size, false, false, false, false, true>(nullptr, nullptr, ncols, stride_row, stride_channel, stride_sample, eps,
 +        nullptr, 0, 0, 0, make_uint3(0, 0, 0), make_uint3(0, 0, 0), make_uint3(0, 0, 0), make_uint3(0, 0, 0),
 +        nullptr, 0, 0, 0, make_uint3(0, 0, 0), make_uint3(0, 0, 0), make_uint3(0, 0, 0), make_uint3(0, 0, 0),
-+        nullptr, nullptr, nullptr, fused);
++        1.0f, nullptr, nullptr, nullptr, fused);
 +}
 +
  template <int block_size>
  static __global__ void rms_norm_back_f32(
          const float * grad, const float * xf, float * dst, const int ncols, const float eps) {
-@@ -511,6 +580,72 @@ bool ggml_cuda_l2_norm_fused(ggml_backend_cuda_context & ctx, ggml_tensor ** nod
+@@ -515,6 +585,72 @@ bool ggml_cuda_l2_norm_fused(ggml_backend_cuda_context & ctx, ggml_tensor ** nod
      return true;
  }
  
@@ -308,10 +310,10 @@ index 57ccdceb2..c7b566a40 100644
          const float * x, float * dst, const int ncols, const int nrows, const int nchannels, const int nsamples,
          const int64_t stride_row, const int64_t stride_channel, const int64_t stride_sample, const float eps, cudaStream_t stream) {
 diff --git a/ggml/src/ggml-cuda/norm.cuh b/ggml/src/ggml-cuda/norm.cuh
-index 83bae57ee..bf9e81a6c 100644
+index 141e77e68..da7a6150f 100644
 --- a/ggml/src/ggml-cuda/norm.cuh
 +++ b/ggml/src/ggml-cuda/norm.cuh
-@@ -27,4 +27,8 @@ void ggml_cuda_op_rms_norm_back(ggml_backend_cuda_context & ctx, ggml_tensor * d
+@@ -29,4 +29,8 @@ void ggml_cuda_op_rms_norm_back(ggml_backend_cuda_context & ctx, ggml_tensor * d
  
  bool ggml_cuda_l2_norm_fused(ggml_backend_cuda_context & ctx, ggml_tensor ** nodes, int n);
  
@@ -321,10 +323,10 @@ index 83bae57ee..bf9e81a6c 100644
 +
  void ggml_cuda_op_l2_norm(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
 diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
-index 8402fcfe0..b84b5fa73 100644
+index d8893025e..0e21921ad 100644
 --- a/tests/test-backend-ops.cpp
 +++ b/tests/test-backend-ops.cpp
-@@ -3760,6 +3760,62 @@ struct test_rms_norm_back : public test_case {
+@@ -3781,6 +3781,62 @@ struct test_rms_norm_back : public test_case {
      }
  };
  
@@ -387,7 +389,7 @@ index 8402fcfe0..b84b5fa73 100644
  // GGML_OP_RMS_NORM + GGML_OP_MUL + GGML_OP_ADD (+ GGML_OP_MUL)
  struct test_rms_norm_mul_add : public test_case {
      const ggml_type type;
-@@ -9784,6 +9840,17 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+@@ -10170,6 +10226,17 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
          test_cases.emplace_back(new test_add_add(GGML_TYPE_F16, GGML_TYPE_F32, { n, 5, 4, 3 }, true, false));
      }
  
